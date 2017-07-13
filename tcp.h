@@ -692,20 +692,9 @@ class PacingTimer : public TimerHandler
 	  TcpAgent *a_;
 };
 
-class ModeTimer : public TimerHandler
-{
-	public:
-	  ModeTimer(TcpAgent *a) : TimerHandler() { a_ = a; }
-
-	protected:
-	  virtual void expire(Event *e);
-	  TcpAgent *a_;
-};
-
 /* TCP Bbr (BbrTcpAgent) */
 class BbrTcpAgent : public virtual TcpAgent {
  friend class PacingTimer;
- friend class ModeTimer;
  public:
 	BbrTcpAgent();
 	~BbrTcpAgent();
@@ -741,6 +730,8 @@ protected:
 	int packets_in_flight();
 	void CheckCyclePhase();
 	bool IsNextCyclePhase();
+	void RestoreCwnd();
+	double SaveCwnd();
 
 	void ExitProbeRTT();
 	void HandleProbeRTT();
@@ -772,7 +763,7 @@ protected:
 	int cwnd_gain;
 	double MinPipeCwnd;
 
-	double prior_inflight;
+	double prior_inflight;	// last packets in flight
 	double inflight;	// paquets_in_flight
 
 	double delivered;  // bytes
@@ -798,11 +789,9 @@ protected:
 
 	/// Timers
 	PacingTimer bbrpactimer;
-	ModeTimer bbrmodetmr;
 
 	double bbr_high_gain;
 	double bbr_drain_gain;
-	double bbr_cwnd_gain;
 
 	int bbr_recoverypacing_rounds;
 	double bbr_highpacing_gain;

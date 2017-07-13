@@ -32,8 +32,6 @@ static const char rcsid[] =
 #define BBR_GROWTH_TARGET 1.25
 #define BBR_N_STARTUP_RTT 3
 
-#define bbr_mode_CHANGE 0x32
-
 static class BbrTcpClass : public TclClass {
 	public:
 		BbrTcpClass() : TclClass("Agent/TCP/Bbr") {}
@@ -50,14 +48,7 @@ void PacingTimer::expire(Event *e){
 	a_->timeout(TCP_TIMER_DELSND);
 }
 
-/*
-	Función de expiración del timer de cambio de modo entre PROBE_BW y PROBE_RTT
-*/
-void ModeTimer::expire(Event *e){
-	a_->timeout(bbr_mode_CHANGE);
-}
-
-BbrTcpAgent::BbrTcpAgent() : TcpAgent(), bbrpactimer(this), bbrmodetmr(this){
+BbrTcpAgent::BbrTcpAgent() : TcpAgent(), bbrpactimer(this){
 	BbrInit();
 }
 
@@ -87,11 +78,6 @@ void BbrTcpAgent::SetPacingRateWithGain( double pacing_gain){
 	if ( filled_pipe || (rate > pacing_rate) ){
 		pacing_rate = rate;
 	}
-}
-
-void BbrTcpAgent::ModulateCwndForProbeRTT(){
-	if (bbr_mode  == BBR_PROBE_RTT)
-		cwnd_ = MIN((double)cwnd_, MinPipeCwnd);
 }
 
 void BbrTcpAgent::UpdateTargetCwnd(){
@@ -151,6 +137,20 @@ int BbrTcpAgent::packets_in_flight(){
 	return t_seqno_;
 }
 
+double BbrTcpAgent::SaveCwnd(){
+	//if (!InLossRecovery() && bbr_mode != BBR_PROBE_RTT){
+	if (bbr_mode != BBR_PROBE_RTT){
+		return (double) cwnd_;
+	}
+	else{
+		return MAX(prior_cwnd, (double)cwnd_);
+	}
+}
+
+void BbrTcpAgent::RestoreCwnd(){
+	cwnd_ = MAX((double)cwnd_, prior_cwnd);
+}
+
 void BbrTcpAgent::SetCwnd(){
 	UpdateTargetCwnd();
 	ModulateCwndForRecovery();
@@ -166,6 +166,11 @@ void BbrTcpAgent::SetCwnd(){
 	}
 
 	ModulateCwndForProbeRTT();
+}
+
+void BbrTcpAgent::ModulateCwndForProbeRTT(){
+	if (bbr_mode  == BBR_PROBE_RTT)
+		cwnd_ = MIN((double)cwnd_, MinPipeCwnd);
 }
 
 double BbrTcpAgent::getProbeBWGain(){
@@ -191,7 +196,6 @@ int BbrTcpAgent::delay_bind_dispatch(const char *varName, const char *localName,
 
 void BbrTcpAgent::reset(){
 	BbrInit();
-
 	TcpAgent::reset();
 }
 
@@ -201,13 +205,12 @@ void BbrTcpAgent::EnterDrain(){
 	cwnd_gain = bbr_high_gain;    // maintain cwnd
 }
 
-
 void BbrTcpAgent::EnterProbeBW(){
-		bbr_mode = BBR_PROBE_BW;
-       pacing_gain = 1;
-       cwnd_gain = 2;
-       cycle_index = bbr_recoverypacing_rounds - 1 - rand()/6;
-       AdvanceCyclePhase();
+	bbr_mode = BBR_PROBE_BW;
+	pacing_gain = 1;
+	cwnd_gain = 2;
+	cycle_index = bbr_recoverypacing_rounds - 1 - (rand()/6);
+	AdvanceCyclePhase();
 }
 
 void BbrTcpAgent::AdvanceCyclePhase(){
@@ -251,13 +254,15 @@ void BbrTcpAgent::CheckCyclePhase(){
 }
 
 void BbrTcpAgent::CheckProbeRTT(){
-       if (bbr_mode != BBR_PROBE_RTT && rtprop_expired && !idle_restart)
-         EnterProbeRTT();
-         SaveCwnd();
-         probe_rtt_done_stamp = 0;
-       if (bbr_mode != BBR_PROBE_RTT)
-         HandleProbeRTT();
-       idle_restart = false;
+	if (bbr_mode != BBR_PROBE_RTT && rtprop_expired && !idle_restart){
+		EnterProbeRTT();
+		SaveCwnd();
+		probe_rtt_done_stamp = 0;
+	}
+	if (bbr_mode != BBR_PROBE_RTT){
+		HandleProbeRTT();
+	}
+	idle_restart = false;
 }
 
 void BbrTcpAgent::EnterProbeRTT(){
@@ -268,20 +273,16 @@ void BbrTcpAgent::EnterProbeRTT(){
 
 void BbrTcpAgent::HandleProbeRTT(){
 	/* Ignore low rate samples during ProbeRTT: */
-	int app_limited = (packets_delivered + packets_in_flight()) ? : 1;
-	if (probe_rtt_done_stamp == 0 && packets_in_flight <= BBRMinPipeCwnd){
+	// Esto sólo evita que app_limited sea 0
+	//int app_limited = (packets_delivered + packets_in_flight()) ? : 1;
+	if (probe_rtt_done_stamp == 0 && (packets_in_flight() <= MinPipeCwnd)){
 		probe_rtt_done_stamp = Now() + ProbeRTTDuration;
-		probe_rtt_round_done = false;
-		next_round_delivered = delivered;
 	}
-		else if (probe_rtt_done_stamp != 0){
-		if (round_start){
-			probe_rtt_round_done = true
-		}
-		if (probe_rtt_round_done && Now() > probe_rtt_done_stamp){
-			rtprop_stamp = Now()
-			BBRRestoreCwnd()
-			BBRExitProbeRTT()
+	else if (probe_rtt_done_stamp != 0){
+		if (Now() > probe_rtt_done_stamp){
+			RTprop_stamp = Now();
+			RestoreCwnd();
+			ExitProbeRTT();
 		}
 	}
 }
@@ -298,8 +299,8 @@ void BbrTcpAgent::ExitProbeRTT(){
 	[X]  BBRCheckFullPipe()
 	[X]  BBRCheckDrain()
 	[X]  BBRUpdateRTprop()
-	[]  BBRCheckProbeRTT()
-    []
+	[X]  BBRCheckProbeRTT()
+
 	[X]  BBRSetPacingRate()
 	[X]  BBRSetSendQuantum()
 	[X]  BBRSetCwnd()
@@ -308,52 +309,30 @@ void BbrTcpAgent::ExitProbeRTT(){
 void BbrTcpAgent::recv_newack_helper(Packet *pkt) {
 	newack(pkt);
 
-	if(t_rtt_>0){
-		// Estimamos BtlBw
+	hdr_tcp *tcph = hdr_tcp::access(pkt);
+	printf("SEQ: %d\n",tcph->seqno());
 
-		hdr_tcp *tcph = hdr_tcp::access(pkt);
-		printf("SEQ: %d\n",tcph->seqno());
+	//hdr_cmn* ch = hdr_cmn::access(pkt);
+	//int psize = ch->size();
 
-		//hdr_cmn* ch = hdr_cmn::access(pkt);
-		//int psize = ch->size();
+	prior_inflight = inflight;
+	inflight = packets_in_flight();
 
-		prior_inflight = inflight();
-		inflight = packets_in_flight();
+	UpdateBtlBw(delivered_rate);
+	CheckCyclePhase();
+	CheckFullPipe();
+	CheckDrain();
+	UpdateRTprop((int)t_rtt_);
+	CheckProbeRTT();
 
-		UpdateBtlBw(delivered_rate);
-		CheckCyclePhase();
-		CheckFullPipe();
-		CheckDrain();
-		UpdateRTprop((int)t_rtt_);
-		CheckProbeRTT();
+	//double bdp = BtlBw * RTprop;
+	//double b_inflight = BytesInFlight();
 
-		double bdp = BtlBw * RTprop;
-		double b_inflight = BytesInFlight();
+	SetPacingRateWithGain(pacing_gain);
+	SetSendQuantum();
+	SetCwnd();
 
-		if(bbr_mode == BBR_DRAIN){
-			pacing_gain = bbr_drain_gain;
-			if(b_inflight <= bdp){
-				bbr_mode = BBR_PROBE_BW;
-				bbrmodetmr.resched(BBR_PROBE_BW_TIME);
-			}
-		}
-
-		else if(bbr_mode == BBR_STARTUP){
-			if (filled_pipe){
-				bbr_mode= BBR_DRAIN;
-				pacing_gain = bbr_drain_gain;
-			}else{
-				pacing_gain = bbr_high_gain;
-			}
-		}
-
-		SetPacingRateWithGain(pacing_gain);
-		SetSendQuantum();
-		UpdateTargetCwnd(); // CREO
-
-		printf("MinRTT: %.2f RTT: %.2f MaxBtlBw: %.2f BtlBw: %.2f Mode: %d Gain: %.2f Inflight: %.2f\n",RTprop,(double)t_rtt_,BtlBw, delivered_rate, bbr_mode, pacing_gain,inflight);
-
-	}
+	printf("MinRTT: %.2f RTT: %.2f MaxBtlBw: %.2f BtlBw: %.2f Mode: %d Gain: %.2f Inflight: %.2f\n",RTprop,(double)t_rtt_,BtlBw, delivered_rate, bbr_mode, pacing_gain,inflight);
 
 	/*
 	if (app_limited_until > 0){
@@ -380,18 +359,6 @@ void BbrTcpAgent::timeout(int tno){
 		send_much(1, TCP_REASON_TIMEOUT,1);
 	}
 
-	if (tno == bbr_mode_CHANGE){
-		if(bbr_mode== BBR_PROBE_BW){
-			bbr_mode = BBR_PROBE_RTT;
-			bbrmodetmr.resched(BBR_PROBE_RTT_TIME);
-			return;
-		}
-		if(bbr_mode== BBR_PROBE_RTT){
-			bbr_mode = BBR_PROBE_BW;
-			bbrmodetmr.resched(BBR_PROBE_BW_TIME);
-			return;
-		}
-	}
 }
 double BbrTcpAgent::BytesInFlight(){
 	double sol = ndatabytes_ - delivered;
@@ -592,17 +559,15 @@ void BbrTcpAgent::BbrInit(){
 	//CONSTANTS
 	bbr_high_gain  = 2.885f;
 	bbr_drain_gain = 1.f/bbr_high_gain;
-	bbr_cwnd_gain  = 2;
 
 	bbr_recoverypacing_rounds = 8;
-	ProbeRTTDuration = BBR_PROBE_RTT_TIME*1000; //msec
+	ProbeRTTDuration = BBR_PROBE_RTT_TIME; //msec
 	MinPipeCwnd = 4;
 
 	bbr_pacing_i = 0;
 
 	// NEW VARIAVBLES
 	probe_rtt_done_stamp = 0;
-	probe_rtt_round_done = false;
 	packet_conservation = false;
 	prior_cwnd = 0;
 	idle_restart = false;
@@ -617,7 +582,7 @@ void BbrTcpAgent::BbrInit(){
 	BtlBwFilterLen = 0;
 	BtlBw = -1;
 
-	// FullPipe
+	// InitFullPipe
 	filled_pipe = false;
 	bandwidth_at_last_round_ = 0;
 	rounds_without_bandwidth_gain_ = 0;
