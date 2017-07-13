@@ -716,7 +716,6 @@ protected:
 	void SetSendQuantum();
 	double BBRInflight(double gain);
 	double GetMaxBtlBw();
-	double getProbeBWGain();
 	double BytesInFlight();
 	void ModulateCwndForProbeRTT();
 	void ModulateCwndForRecovery();
@@ -732,6 +731,7 @@ protected:
 	bool IsNextCyclePhase();
 	void RestoreCwnd();
 	double SaveCwnd();
+	void PrintDebug();
 
 	void ExitProbeRTT();
 	void HandleProbeRTT();
@@ -749,7 +749,7 @@ protected:
 
 	double RTprop_stamp;
 	int RTpropFilterLen;
-	int RTprop;
+	double RTprop;
 
 	double BtlBw_stamp;
 	int BtlBwFilterLen;
@@ -796,7 +796,6 @@ protected:
 	int bbr_recoverypacing_rounds;
 	double bbr_highpacing_gain;
 	double bbr_lowpacing_gain;
-	int bbr_pacing_i;
 
 	int bbr_mode;
 

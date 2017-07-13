@@ -4,7 +4,6 @@
  *
  */
 
-
 #ifndef lint
 static const char rcsid[] =
 "@(#) $Header: /cvsroot/nsnam/ns-2/tcp/tcp-bbr.cc,v 0.01 2017/08/25 18:58:12 Sergio Maeso $ (UC3M)";
@@ -31,6 +30,9 @@ static const char rcsid[] =
 
 #define BBR_GROWTH_TARGET 1.25
 #define BBR_N_STARTUP_RTT 3
+
+#define KILO(x) x*1024
+#define MEGA(x) KILO(KILO(x))
 
 static class BbrTcpClass : public TclClass {
 	public:
@@ -80,19 +82,28 @@ void BbrTcpAgent::SetPacingRateWithGain( double pacing_gain){
 	}
 }
 
-void BbrTcpAgent::UpdateTargetCwnd(){
-	target_cwnd = BBRInflight(cwnd_gain);
-}
-
 void BbrTcpAgent::SetSendQuantum(){
-  if (pacing_rate < 1200000)
+  if (pacing_rate < MEGA(1.2)/8)	//Mbps
     send_quantum = 1 * size_;
-  else if (pacing_rate < 2400000)
+  else if (pacing_rate < MEGA(24)/8)	//Mbps
     send_quantum  = 2 * size_;
   else
-    send_quantum  = MIN(pacing_rate, 64000);
+    send_quantum  = MIN(pacing_rate*0.01, KILO(64));	//Kilobyte, Milliseconds
 }
 
+/*
+		Estimated_bdp: allows enough packets in flight to fully
+	utilize the estimated BDP of the path, by allowing the flow to send
+	at BBR.BtlBw for a duration of BBR.RTprop.  Scaling up the BDP by
+	cwnd_gain, selected by the BBR state machine to be above 1.0 at all
+	times, bounds in-flight data to a small multiple of the BDP, in order
+	to handle common network and receiver pathologies, such as delayed,
+	stretched, or aggregated ACKs.
+
+	Quanta term allows enough quanta in flight on the sending and receiving
+	hosts to reach full utilization even in high-throughput environments using
+	offloading mechanisms.
+*/
 double BbrTcpAgent::BBRInflight(double gain){
 	if (RTprop == -1)
 		return wnd_init_; // no valid RTT samples yet
@@ -100,6 +111,53 @@ double BbrTcpAgent::BBRInflight(double gain){
 	double estimated_bdp = BtlBw * RTprop;
 	return gain * estimated_bdp + quanta;
 }
+
+void BbrTcpAgent::UpdateTargetCwnd(){
+	target_cwnd = BBRInflight(cwnd_gain);
+}
+
+
+void BbrTcpAgent::ModulateCwndForRecovery(){
+	if (packets_lost > 0)
+		cwnd_ = MAX(cwnd_ - packets_lost, 1);
+	if (packet_conservation)
+		cwnd_ = MAX((double)cwnd_, packets_in_flight() + packets_delivered);
+}
+
+double BbrTcpAgent::SaveCwnd(){
+	//if (!InLossRecovery() && bbr_mode != BBR_PROBE_RTT){
+	if (bbr_mode != BBR_PROBE_RTT){
+		return (double) cwnd_;
+	}
+	else{
+		return MAX(prior_cwnd, (double)cwnd_);
+	}
+}
+
+void BbrTcpAgent::RestoreCwnd(){
+	cwnd_ = MAX((double)cwnd_, prior_cwnd);
+}
+
+void BbrTcpAgent::ModulateCwndForProbeRTT(){
+	if (bbr_mode  == BBR_PROBE_RTT)
+		cwnd_ = MIN((double)cwnd_, MinPipeCwnd);
+}
+
+void BbrTcpAgent::SetCwnd(){
+	UpdateTargetCwnd();
+	ModulateCwndForRecovery();
+	if (!packet_conservation){
+		if (filled_pipe){
+			cwnd_ = MIN((double)cwnd_ + packets_delivered, target_cwnd);
+		}
+		else if (cwnd_ < target_cwnd || delivered < wnd_init_){
+			cwnd_ = cwnd_ + packets_delivered;
+		}
+		cwnd_ = MAX((double)cwnd_, MinPipeCwnd);
+	}
+	ModulateCwndForProbeRTT();
+}
+
 
 void BbrTcpAgent::UpdateBtlBw(double bw){
 		bool BtlBw_expired = BtlBw_stamp > BtlBwFilterLen;
@@ -126,61 +184,8 @@ void BbrTcpAgent::CheckFullPipe(){
 	}
 }
 
-void BbrTcpAgent::ModulateCwndForRecovery(){
-	if (packets_lost > 0)
-		cwnd_ = MAX(cwnd_ - packets_lost, 1);
-	if (packet_conservation)
-		cwnd_ = MAX((double)cwnd_, packets_in_flight() + packets_delivered);
-}
-
 int BbrTcpAgent::packets_in_flight(){
-	return t_seqno_;
-}
-
-double BbrTcpAgent::SaveCwnd(){
-	//if (!InLossRecovery() && bbr_mode != BBR_PROBE_RTT){
-	if (bbr_mode != BBR_PROBE_RTT){
-		return (double) cwnd_;
-	}
-	else{
-		return MAX(prior_cwnd, (double)cwnd_);
-	}
-}
-
-void BbrTcpAgent::RestoreCwnd(){
-	cwnd_ = MAX((double)cwnd_, prior_cwnd);
-}
-
-void BbrTcpAgent::SetCwnd(){
-	UpdateTargetCwnd();
-	ModulateCwndForRecovery();
-
-	if (! packet_conservation) {
-		if (filled_pipe){
-			cwnd_ = MIN((double)cwnd_ + packets_delivered, target_cwnd);
-		}
-		else if (cwnd_ < target_cwnd || delivered < wnd_init_){
-			cwnd_ = cwnd_ + packets_delivered;
-		}
-		cwnd_ = MAX((double)cwnd_, MinPipeCwnd);
-	}
-
-	ModulateCwndForProbeRTT();
-}
-
-void BbrTcpAgent::ModulateCwndForProbeRTT(){
-	if (bbr_mode  == BBR_PROBE_RTT)
-		cwnd_ = MIN((double)cwnd_, MinPipeCwnd);
-}
-
-double BbrTcpAgent::getProbeBWGain(){
-	double sol = 1;
-	if(bbr_pacing_i==0) sol = bbr_highpacing_gain;
-	if(bbr_pacing_i==1) sol = bbr_lowpacing_gain;
-
-	bbr_pacing_i += (bbr_pacing_i== bbr_recoverypacing_rounds+2) ? 0 : 1;
-	return sol;
-
+	return maxseq_ - highest_ack_;
 }
 
 int BbrTcpAgent::delay_bind_dispatch(const char *varName, const char *localName,TclObject *tracer){
@@ -209,8 +214,13 @@ void BbrTcpAgent::EnterProbeBW(){
 	bbr_mode = BBR_PROBE_BW;
 	pacing_gain = 1;
 	cwnd_gain = 2;
-	cycle_index = bbr_recoverypacing_rounds - 1 - (rand()/6);
+	cycle_index = bbr_recoverypacing_rounds - 1 - (int)(rand()/6);
 	AdvanceCyclePhase();
+}
+
+void BbrTcpAgent::CheckCyclePhase(){
+	if( (bbr_mode == BBR_PROBE_BW) && IsNextCyclePhase())
+	 AdvanceCyclePhase();
 }
 
 void BbrTcpAgent::AdvanceCyclePhase(){
@@ -248,18 +258,13 @@ bool BbrTcpAgent::IsNextCyclePhase(){
 	}
 }
 
-void BbrTcpAgent::CheckCyclePhase(){
-	if( (bbr_mode == BBR_PROBE_BW) && IsNextCyclePhase())
-	 AdvanceCyclePhase();
-}
-
 void BbrTcpAgent::CheckProbeRTT(){
 	if (bbr_mode != BBR_PROBE_RTT && rtprop_expired && !idle_restart){
 		EnterProbeRTT();
 		SaveCwnd();
 		probe_rtt_done_stamp = 0;
 	}
-	if (bbr_mode != BBR_PROBE_RTT){
+	if (bbr_mode == BBR_PROBE_RTT){
 		HandleProbeRTT();
 	}
 	idle_restart = false;
@@ -310,7 +315,6 @@ void BbrTcpAgent::recv_newack_helper(Packet *pkt) {
 	newack(pkt);
 
 	hdr_tcp *tcph = hdr_tcp::access(pkt);
-	printf("SEQ: %d\n",tcph->seqno());
 
 	//hdr_cmn* ch = hdr_cmn::access(pkt);
 	//int psize = ch->size();
@@ -332,7 +336,10 @@ void BbrTcpAgent::recv_newack_helper(Packet *pkt) {
 	SetSendQuantum();
 	SetCwnd();
 
-	printf("MinRTT: %.2f RTT: %.2f MaxBtlBw: %.2f BtlBw: %.2f Mode: %d Gain: %.2f Inflight: %.2f\n",RTprop,(double)t_rtt_,BtlBw, delivered_rate, bbr_mode, pacing_gain,inflight);
+	// Timestamp, BtlBw, RTProp, pacing_gain, cwnd_gain,
+	PrintDebug();
+
+	//printf("MinRTT: %.2f RTT: %.2f MaxBtlBw: %.2f BtlBw: %.2f Mode: %d Gain: %.2f Inflight: %.2f\n",RTprop,(double)t_rtt_,BtlBw, delivered_rate, bbr_mode, pacing_gain,inflight);
 
 	/*
 	if (app_limited_until > 0){
@@ -360,13 +367,14 @@ void BbrTcpAgent::timeout(int tno){
 	}
 
 }
+
 double BbrTcpAgent::BytesInFlight(){
 	double sol = ndatabytes_ - delivered;
 	return (sol < 0) ? 0 : sol;
 }
 
 void BbrTcpAgent::output(int seqno, int reason){
-	int is_retransmit = (seqno < maxseq_);
+	//int is_retransmit = (seqno < maxseq_);
 	Packet* p = allocpkt();
 	hdr_tcp *tcph = hdr_tcp::access(p);
 	tcph->seqno() = seqno;
@@ -413,9 +421,6 @@ void BbrTcpAgent::output(int seqno, int reason){
     nrexmitbytes_ += bytes;
   }
 
-	if(bbr_mode==BBR_PROBE_BW){
-  	pacing_gain =  getProbeBWGain();
-	}
 	if(BtlBw!=0){
 		bbr_next_sent = bytes*1.0 / (pacing_gain *BtlBw * 1.0);
 	}else{
@@ -430,8 +435,21 @@ void BbrTcpAgent::output(int seqno, int reason){
 		set_rtx_timer();
 	}
 
-	printf("SENT:%.lf bytes: %d Next: %.2f Gain: %.2f RTprop: %.2f BtlBw: %.2f Mode: %d\n",Now(),bytes,bbr_next_sent,pacing_gain,RTprop,BtlBw,bbr_mode);
+	PrintDebug();
+		//printf("SENT:%.lf bytes: %d Next: %.2f Gain: %.2f RTprop: %.2f BtlBw: %.2f Mode: %d\n",Now(),bytes,bbr_next_sent,pacing_gain,RTprop,BtlBw,bbr_mode);
 
+}
+
+void BbrTcpAgent::PrintDebug(){
+	printf("%lf\t",Now());
+	printf("SYN\t");
+	printf("%lf\t",BtlBw);
+	printf("%lf\t",RTprop);
+	printf("%lf\t",pacing_gain);
+	printf("%d\t",cwnd_gain);
+	printf("%lf\t",pacing_rate);
+	printf("%d\t",packets_in_flight());
+	printf("%d\n",bbr_mode);
 }
 
 void BbrTcpAgent::send_one(){
@@ -559,28 +577,22 @@ void BbrTcpAgent::BbrInit(){
 	//CONSTANTS
 	bbr_high_gain  = 2.885f;
 	bbr_drain_gain = 1.f/bbr_high_gain;
-
 	bbr_recoverypacing_rounds = 8;
 	ProbeRTTDuration = BBR_PROBE_RTT_TIME; //msec
 	MinPipeCwnd = 4;
+	RTpropFilterLen = 10;
 
-	bbr_pacing_i = 0;
+	// BtlWb (round Counting, I think)
+	BtlBw_stamp = 0;
+	BtlBwFilterLen = 10;
+	BtlBw = -1;
 
-	// NEW VARIAVBLES
+	RTprop = ((int)t_srtt_) ? ((int)t_srtt_) : -1;
+	RTprop_stamp = Now();
 	probe_rtt_done_stamp = 0;
 	packet_conservation = false;
 	prior_cwnd = 0;
 	idle_restart = false;
-
-	// RTprop
-	RTprop_stamp = 0;
-	RTpropFilterLen = 10;
-	RTprop = ((int)t_srtt_) ? ((int)t_srtt_) : -1;
-
-	// BtlWb (round Counting, I think)
-	BtlBw_stamp = 10;
-	BtlBwFilterLen = 0;
-	BtlBw = -1;
 
 	// InitFullPipe
 	filled_pipe = false;
