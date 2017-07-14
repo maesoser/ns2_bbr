@@ -731,7 +731,7 @@ protected:
 	bool IsNextCyclePhase();
 	void RestoreCwnd();
 	double SaveCwnd();
-	void PrintDebug();
+	void PrintDebug(bool is_ack);
 
 	void ExitProbeRTT();
 	void HandleProbeRTT();
@@ -800,6 +800,8 @@ protected:
 	int bbr_mode;
 
 	double bbr_next_sent;
+
+	double last_time;
 
 };
 

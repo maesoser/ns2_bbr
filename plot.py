@@ -3,80 +3,94 @@ mpl.use('Agg')
 
 import matplotlib.pyplot as plt
 import sys
+from matplotlib.ticker import FormatStrFormatter
 
 of = open(sys.argv[1],"r")
 lines = of.readlines()
 of.close()
 
-rtt = []
-btlbw = []
-minrtt = []
-maxbtlbw = []
-gain = []
-timev = []
-modes = []
-inflight = []
+
 bdp = []
-status = 0
+timev = []
+cwndgainv = []
+rtpropv = []
+btlbwv = []
+pacinggainv = []
+pacingratev = []
+inflightv = []
+
+modes = []
+lastmode = ""
 n = 0
+
 for line in lines:
-	if line.find("ACK")!=-1 and len(line.split(" ")) > 10:
-		# ACK:0.069054 MinRTT: 6.000000 RTT: 6.000000 MaxBtlBw: 579.255827 BtlBw: 579.255827 Mode: 1 Gain: 8.323225 Inflight: 1.000000
-		timeun = float(line.split(" ")[0].split(":")[1])
-		nowminrtt = float(line.split(" ")[2])
-		nowrtt = float(line.split(" ")[4])
-		nowbtlbw = float(line.split(" ")[8])/1024
-		nowmaxbtlbw = float(line.split(" ")[6])/1024
-		nowgain = float(line.split(" ")[12])
-		nowinflight = float(line.split(" ")[14])
-		nowstatus = int(line.split(" ")[10])
-		bdp.append(nowbtlbw*nowrtt);
-		inflight.append(nowinflight)
-		if status!=nowstatus:
-			modes.append(timeun)
-			print str(timeun)+" STATUS "+str(nowstatus)
-			status = nowstatus
-		timev.append(timeun)
-		gain.append(nowgain)
-		rtt.append(nowrtt)
-		btlbw.append(nowbtlbw)
-		minrtt.append(nowminrtt)
-		maxbtlbw.append(nowmaxbtlbw)
+	if line.find("ACK")!=-1:
+		line = line.split("\t")
+
+		timestamp = float(line[0])
+		BtlBw = float(line[2])
+		RTprop = float(line[3])
+		# SECS = RTprop/100
+		pacing_gain = float(line[4])
+		cwnd_gain = float(line[5])
+		pacing_rate = float(line[6])
+		inflight = float(line[7])
+		mode = line[8].replace("\n","")
+
+		bdp.append(BtlBw*RTprop);
+
+		if lastmode!=mode:
+			modes.append(timestamp)
+			print str(timestamp)+" MODE: "+str(mode)
+			lastmode = mode
+
+		timev.append(timestamp)
+		cwndgainv.append(cwnd_gain)
+		rtpropv.append(RTprop)
+		btlbwv.append(BtlBw)
+		pacinggainv.append(pacing_gain)
+		pacingratev.append(pacing_rate)
+		inflightv.append(inflight)
+
 		n = n +1
 
-plt.figure(figsize=(16,12))
+plt.figure(figsize=(24,16))
 
 ax = plt.subplot(221)
-ax.plot(timev,rtt)
+ax.plot(timev,rtpropv)
 for mode in modes:
 	ax.axvline(mode, c='grey', label='status')
-ax.set_title("RTT")
+ax.set_title("RTProp")
+ax.set_ylim(0,1)
 
 ax = plt.subplot(222)
+ax.set_title("BDP/INFLIGHT")
 ax.text(timev[5],bdp[5], r'BDP', fontsize=10,color="red", verticalalignment='bottom', horizontalalignment='left')
-ax.text(timev[10],inflight[10], r'INFLIGHT', fontsize=10,color="green", verticalalignment='bottom', horizontalalignment='right')
+ax.text(timev[10],inflightv[10], r'INFLIGHT', fontsize=10,color="green", verticalalignment='bottom', horizontalalignment='right')
 ax.plot(timev,bdp,c="red")
-ax.plot(timev,inflight,c="green")
-ylimv = max(max(bdp),max(inflight))*1.5
+ax.plot(timev,inflightv,c="green")
+ylimv = max(max(bdp),max(inflightv))*1.5
 ax.set_ylim(0,ylimv)
+ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 for mode in modes:
 	plt.axvline(mode, c='grey', label='status')
-ax.set_title("BDP/INFLIGHT")
 
 ax = plt.subplot(223)
-ax.plot(timev,btlbw,c="green")
-ax.plot(timev,maxbtlbw,c="red")
+ax.set_title("BTlBw")
+ax.set_ylabel("MBytes")
+ax.plot(timev,btlbwv,c="green")
+ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+#ax.set_ylim(0,ylimv)
 for mode in modes:
 	plt.axvline(mode, c='grey', label='status')
-ax.set_title("BANDWIDTH")
-ax.set_ylabel("Kbytes")
+
 
 ax = plt.subplot(224)
-ax.plot(timev,gain)
+ax.set_title("GAIN")
+ax.plot(timev,pacinggainv)
 for mode in modes:
 	plt.axvline(mode, c='grey', label='status')
-ax.set_title("GAIN")
-
+ax.set_ylim(0.5,3)
 plt.tight_layout()
 plt.savefig('results.png')
 plt.close()
