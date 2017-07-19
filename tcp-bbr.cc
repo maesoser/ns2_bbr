@@ -460,6 +460,7 @@ void BbrTcpAgent::output(int seqno, int reason) {
   }
 
   bbr_next_sent = bytes * 1.0 / (pacing_rate * 1.0);
+  printf("NS %lf \n", bbr_next_sent);
 
   if (!(rtx_timer_.status() == TIMER_PENDING)) {
     set_rtx_timer();
@@ -567,7 +568,6 @@ void BbrTcpAgent::recv(Packet *pkt, Handler *)
   Packet::free(pkt);
 
   if ((dupacks_ == 0) || (dupacks_ > numdupacks_ - 1)) send_much(0, 0, maxburst_);
-
 }
 
 void BbrTcpAgent::send_much(int force, int reason, int maxburst)
