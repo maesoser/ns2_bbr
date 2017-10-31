@@ -3,9 +3,9 @@ NSVER = 2.35
 NSPATH = ../ns-allinone-$(NSVER)
 DSTPATH = /ns-$(NSVER)/tcp/linux/src/
 
-all: tcl
+all: bbr
 
-tcl:
+bbr:
 	clear
 	cp tcp.h $(NSPATH)/ns-$(NSVER)/tcp/
 	cp tcp-bbr.cc $(NSPATH)/ns-$(NSVER)/tcp/
