@@ -2,35 +2,27 @@
 
 This is an implementation of Google's BBR TCP Congestion Control Algorithm for the ns-2 network simulator to be used on the [ICCRG TCP Evaluation Suite](https://riteproject.eu/resources/ietf-drafts/)
 
+**This is an unfinished implementation** Contributions are welcome.
+
 ### How to install & use it
 
-1. First, make sure your simulato setup works and compiles without applying this.
-2. Now, you should install [the patch that enables pacing on ns2.34](http://jordan.auge.free.fr/misc)
-3. Copy the code to `tcp/linux/src/bbr.c` under the ns source tree
-4. Add an entry in the Makefile.in:
-  ```
-  OBJ_CC = \
-  ...
-  tcp/linux/src/bbr.o \
-  ...
-  ```
-5. Recompile the simulator.
-  ```
-  configure
-  make
-  ```
-  o
-  ```
-  install
-  ```
-6. Include the following lines in your tcl script to configure a BBR sender node:
-  ```
-  ...
-  set tcp_sender [new Agent/TCP/Linux]
-  $tcp_sender set timestamps_ true
-  $tcp_sender select_ca bbr
-  ...
-  ```
+1. We assume your working ns-allinone-2.35 folder is next to the folder containing this repository, that is:
+```
+|- bbr
+|   |-Makefile
+|   |-tcp.h
+|   |- (...)
+|
+|- ns-allinone-2.35
+    |- ns-2.35
+    |- include
+    |- bin
+    |- (...)
+```
+
+2. If your folder structure it's like that,you just need to invoke `make bbr` in order to get your files copied and compiled. **CAUTION**, the `make bbr` command overwrites an important header file on ns-2, `tcp.h.` If you previously modified this file, maybe you want to take a look at mine and copy just the modified lines.
+
+3. Don't hesitate to take a look at the Makefile, it is very simple.
 
 ### Acknowledgements
 
