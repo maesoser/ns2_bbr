@@ -24,6 +24,12 @@ This is an implementation of Google's BBR TCP Congestion Control Algorithm for t
 
 3. Don't hesitate to take a look at the Makefile, it is very simple.
 
+### Python script
+
+There is a python script which plots some debug data printed by the tcp-bbr code. Take a look at it.
+
+![Editing](https://github.com/maesoser/ns2_bbr/raw/master/results.png)
+
 ### Acknowledgements
 
 This code is based on [Google's proposed patch for the linux kernel](https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=0f8782ea14974ce992618b55f0c041ef43ed0b78). It's specific ns-2 implementation is heavily influenced on the [Ledbat implementation for ns-2 simulator](http://perso.telecom-paristech.fr/~drossi/index.php?n=Software.LEDBATtele)
