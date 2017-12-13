@@ -38,7 +38,7 @@ make plot
 
 You can apply these patches by doing:
 
-``
+```
 make patch
 ```
 
