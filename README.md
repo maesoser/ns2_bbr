@@ -4,6 +4,16 @@ This is an implementation of Google's BBR TCP Congestion Control Algorithm for t
 
 **This is an unfinished implementation** Contributions are welcome.
 
+### TL;DR
+
+This folder has to be next to (at the same level as ) ns-allinone-2.35.
+
+```
+make patch
+make all
+make plot
+```
+
 ### How to install & use it
 
 1. We assume your working ns-allinone-2.35 folder is next to the folder containing this repository, that is:
@@ -20,9 +30,23 @@ This is an implementation of Google's BBR TCP Congestion Control Algorithm for t
     |- (...)
 ```
 
-2. If your folder structure it's like that,you just need to invoke `make bbr` in order to get your files copied and compiled. **CAUTION**, the `make bbr` command overwrites an important header file on ns-2, `tcp.h.` If you previously modified this file, maybe you want to take a look at mine and copy just the modified lines.
+2. If it is the first time you install this, yo have to patch three important files:
 
-3. Don't hesitate to take a look at the Makefile, it is very simple.
+- `Makefile.in`
+- `tcp/tcp.h`
+- `lib/tcl/ns-defaults.tcl`
+
+You can apply these patches by doing:
+
+``
+make patch
+```
+
+3. After doing this, you need to call `make all` to copy the code and the `.tcl` script into ns2.35. This copy is separated from the patch rule because `tcp-bbr.cc` is completely original, so you can replace it without breaking anything (but bbr). So, from now on and after performing these steps, if you want to play with the code and change it, the only thing you need to do to test it is to perform again: `make all`.
+
+4. In order to plot the wonderful graphs you see above, you can call `make plot`.
+
+**Don't hesitate to take a look at the Makefile, it is very simple.**
 
 ### Python script
 
